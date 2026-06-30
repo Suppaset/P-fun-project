@@ -334,14 +334,31 @@ def build_lookups(wb_vor_all, wb_vor_lin, wb_trucker, today):
 
     if frames:
         tdf = pd.concat(frames, ignore_index=True)
-        tc   = find_col(tdf, ["Trailer"])
-        ptd  = find_col(tdf, ["Depart DC Original PTD"])
-        depc = find_col(tdf, ["Depart Depot", "Depot"])
-        if tc and ptd and depc:
+        tc        = find_col(tdf, ["Trailer"])
+        conf_dep  = find_col(tdf, ["Confirmed Depart DC Time", "Confirmed Depart DC"])
+        ptd       = find_col(tdf, ["Depart DC PTD"])
+        depc      = find_col(tdf, ["Depart Depot", "Depot"])
+        if tc and depc:
             tdf["_fn"] = tdf[tc].map(normalize)
-            tdf["_ptd_date"] = pd.to_datetime(tdf[ptd], dayfirst=True, errors="coerce").dt.date
-            today_rows = tdf[tdf["_ptd_date"] == today]
-            # bottom-up → เอาแถวท้ายสุดของแต่ละ trailer (ล่าสุด)
+            # เช็ค Confirmed Depart DC Time ก่อน ถ้าว่างหรือไม่ตรงให้ใช้ Depart DC PTD
+            def matches_today(row, target_date):
+                # เช็ค Confirmed Depart DC Time ก่อน
+                if conf_dep and conf_dep in row.index:
+                    val = row[conf_dep]
+                    if val is not None and str(val).strip() not in ("", "NaT", "None", "nan"):
+                        d = pd.to_datetime(val, dayfirst=True, errors="coerce")
+                        if pd.notna(d) and d.date() == target_date:
+                            return True
+                # ไม่ตรง (ว่าง หรือ มีค่าแต่ไม่ตรง) → fallback ไป Depart DC PTD
+                if ptd and ptd in row.index:
+                    val = row[ptd]
+                    if val is not None and str(val).strip() not in ("", "NaT", "None", "nan"):
+                        d = pd.to_datetime(val, dayfirst=True, errors="coerce")
+                        if pd.notna(d) and d.date() == target_date:
+                            return True
+                return False
+            tdf["_is_match"] = tdf.apply(lambda r: matches_today(r, today), axis=1)
+            today_rows = tdf[tdf["_is_match"]]
             for fn_val, grp in today_rows.groupby("_fn"):
                 if not fn_val: continue
                 last_row = grp.iloc[-1]
@@ -401,13 +418,13 @@ def process_all_files(lotus_bytes, vor_all_bytes, vor_lin_bytes, trucker_bytes, 
             if t2_frames:
                 t2_df = pd.concat(t2_frames, ignore_index=True)
                 t2_trailer = find_col(t2_df, ["Trailer"])
-                t2_ptd     = find_col(t2_df, ["Depart DC Original PTD"])
                 t2_depot   = find_col(t2_df, ["Depart Depot", "Depot"])
-                if t2_trailer and t2_ptd and t2_depot:
+                t2_conf_dep = find_col(t2_df, ["Confirmed Depart DC Time", "Confirmed Depart DC"])
+                t2_ptd2     = find_col(t2_df, ["Depart DC PTD"])
+                if t2_trailer and t2_depot:
                     t2_df["_fn"] = t2_df[t2_trailer].map(normalize)
                     for i, row in lotus_df.iterrows():
                         current_status = str(lotus_df.at[i, "🚦 Status"]).strip()
-                        # ข้ามถ้าเป็นชื่อ Depot อยู่แล้ว (ไม่ใช่ค่าใน DEPOT_STATUSES และไม่ใช่ Parking/Locked/On Road)
                         is_depot = (current_status not in DEPOT_STATUSES
                                     and not current_status.startswith("Parking")
                                     and not current_status.startswith("Locked")
@@ -417,10 +434,22 @@ def process_all_files(lotus_bytes, vor_all_bytes, vor_lin_bytes, trucker_bytes, 
                         fn_val = normalize(row[fleet_col])
                         matched2 = t2_df[t2_df["_fn"] == fn_val].iloc[::-1]
                         for _, row2 in matched2.iterrows():
-                            ptd = row2[t2_ptd]
-                            ptd_date = pd.to_datetime(ptd, errors='coerce')
-                            ptd_date = ptd_date.date() if pd.notna(ptd_date) else None
-                            if ptd_date == run_date:
+                            is_match = False
+                            # เช็ค Confirmed Depart DC Time ก่อน
+                            if t2_conf_dep and t2_conf_dep in row2.index:
+                                val = row2[t2_conf_dep]
+                                if val is not None and str(val).strip() not in ("", "NaT", "None", "nan"):
+                                    d = pd.to_datetime(val, errors='coerce')
+                                    if pd.notna(d) and d.date() == run_date:
+                                        is_match = True
+                            # ไม่ตรง (ว่าง หรือ มีค่าแต่ไม่ตรง) → fallback ไป Depart DC PTD
+                            if not is_match and t2_ptd2 and t2_ptd2 in row2.index:
+                                val = row2[t2_ptd2]
+                                if val is not None and str(val).strip() not in ("", "NaT", "None", "nan"):
+                                    d = pd.to_datetime(val, errors='coerce')
+                                    if pd.notna(d) and d.date() == run_date:
+                                        is_match = True
+                            if is_match:
                                 depot2 = str(row2[t2_depot]).strip()
                                 lotus_df.at[i, "🚦 Status"] = depot2 if depot2 else "Unknown Depot"
                                 break
