@@ -302,27 +302,27 @@ def build_lookups(wb_vor_all, wb_vor_lin, wb_trucker, today):
     # VOR set
     vor_set = set()
     if "VOR Report" in wb_vor_all.sheetnames:
-        df = sheet_df(wb_vor_all, "VOR Report", "Fleet")
-        col = find_col(df, ["Fleet No", "FleetNo", "Fleet#"])
+        df = sheet_df(wb_vor_all, "VOR Report", "Fleet No")
+        col = find_col(df, ["Fleet No"])
         if col: vor_set |= set(df[col].map(normalize).values) - {""}
 
     # Dispose set
     dispose_set = set()
     for sname in wb_vor_all.sheetnames:
         if "รอขาย" not in sname: continue
-        df = sheet_df(wb_vor_all, sname, "Fleet")
-        col = find_col(df, ["Fleet No", "FleetNo", "Fleet#"])
+        df = sheet_df(wb_vor_all, sname, "Fleet No")
+        col = find_col(df, ["Fleet No"])
         if col: dispose_set |= set(df[col].map(normalize).values) - {""}
 
     for sname in [s for s in wb_vor_lin.sheetnames if is_date_pattern_sheet(s)]:
-        df = sheet_df(wb_vor_lin, sname, "Fleet")
-        col = find_col(df, ["Fleet No", "FleetNo", "Fleet#"])
+        df = sheet_df(wb_vor_lin, sname, "Fleet No")
+        col = find_col(df, ["Fleet No"])
         if col: vor_set |= set(df[col].map(normalize).values) - {""}
 
     for sname in wb_vor_lin.sheetnames:
         if "disposal" not in sname.lower(): continue
-        df = sheet_df(wb_vor_lin, sname, "Fleet")
-        col = find_col(df, ["Fleet No", "FleetNo", "Fleet#"])
+        df = sheet_df(wb_vor_lin, sname, "Fleet No")
+        col = find_col(df, ["Fleet No"])
         if col: dispose_set |= set(df[col].map(normalize).values) - {""}
 
     # Trucker dict: fleet# → depot ถ้า PTD == today
