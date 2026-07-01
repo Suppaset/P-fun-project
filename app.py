@@ -302,27 +302,27 @@ def build_lookups(wb_vor_all, wb_vor_lin, wb_trucker, today):
     # VOR set
     vor_set = set()
     if "VOR Report" in wb_vor_all.sheetnames:
-        df = sheet_df(wb_vor_all, "VOR Report", "Fleet No")
-        col = find_col(df, ["Fleet No"])
+        df = sheet_df(wb_vor_all, "VOR Report", "Fleet")
+        col = find_col(df, ["Fleet No", "FleetNo", "Fleet#"])
         if col: vor_set |= set(df[col].map(normalize).values) - {""}
 
     # Dispose set
     dispose_set = set()
     for sname in wb_vor_all.sheetnames:
         if "รอขาย" not in sname: continue
-        df = sheet_df(wb_vor_all, sname, "Fleet No")
-        col = find_col(df, ["Fleet No"])
+        df = sheet_df(wb_vor_all, sname, "Fleet")
+        col = find_col(df, ["Fleet No", "FleetNo", "Fleet#"])
         if col: dispose_set |= set(df[col].map(normalize).values) - {""}
 
     for sname in [s for s in wb_vor_lin.sheetnames if is_date_pattern_sheet(s)]:
-        df = sheet_df(wb_vor_lin, sname, "Fleet No")
-        col = find_col(df, ["Fleet No"])
+        df = sheet_df(wb_vor_lin, sname, "Fleet")
+        col = find_col(df, ["Fleet No", "FleetNo", "Fleet#"])
         if col: vor_set |= set(df[col].map(normalize).values) - {""}
 
     for sname in wb_vor_lin.sheetnames:
         if "disposal" not in sname.lower(): continue
-        df = sheet_df(wb_vor_lin, sname, "Fleet No")
-        col = find_col(df, ["Fleet No"])
+        df = sheet_df(wb_vor_lin, sname, "Fleet")
+        col = find_col(df, ["Fleet No", "FleetNo", "Fleet#"])
         if col: dispose_set |= set(df[col].map(normalize).values) - {""}
 
     # Trucker dict: fleet# → depot ถ้า PTD == today
@@ -346,10 +346,10 @@ def build_lookups(wb_vor_all, wb_vor_lin, wb_trucker, today):
                 if conf_dep and conf_dep in row.index:
                     val = row[conf_dep]
                     if val is not None and str(val).strip() not in ("", "NaT", "None", "nan"):
+                        # มีค่า → ใช้ค่านี้ตัดสินเลย ไม่ fallback
                         d = pd.to_datetime(val, dayfirst=True, errors="coerce")
-                        if pd.notna(d) and d.date() == target_date:
-                            return True
-                # ไม่ตรง (ว่าง หรือ มีค่าแต่ไม่ตรง) → fallback ไป Depart DC PTD
+                        return pd.notna(d) and d.date() == target_date
+                # ว่างเท่านั้น → fallback ไป Depart DC PTD
                 if ptd and ptd in row.index:
                     val = row[ptd]
                     if val is not None and str(val).strip() not in ("", "NaT", "None", "nan"):
@@ -439,16 +439,19 @@ def process_all_files(lotus_bytes, vor_all_bytes, vor_lin_bytes, trucker_bytes, 
                             if t2_conf_dep and t2_conf_dep in row2.index:
                                 val = row2[t2_conf_dep]
                                 if val is not None and str(val).strip() not in ("", "NaT", "None", "nan"):
+                                    # มีค่า → ใช้ค่านี้ตัดสินเลย ไม่ fallback
                                     d = pd.to_datetime(val, errors='coerce')
-                                    if pd.notna(d) and d.date() == run_date:
-                                        is_match = True
-                            # ไม่ตรง (ว่าง หรือ มีค่าแต่ไม่ตรง) → fallback ไป Depart DC PTD
-                            if not is_match and t2_ptd2 and t2_ptd2 in row2.index:
-                                val = row2[t2_ptd2]
-                                if val is not None and str(val).strip() not in ("", "NaT", "None", "nan"):
-                                    d = pd.to_datetime(val, errors='coerce')
-                                    if pd.notna(d) and d.date() == run_date:
-                                        is_match = True
+                                    is_match = pd.notna(d) and d.date() == run_date
+                                    if not is_match:
+                                        break  # มีค่าแต่ไม่ตรง → ข้ามแถวนี้
+                            else:
+                                # ว่างเท่านั้น → fallback ไป Depart DC PTD
+                                if t2_ptd2 and t2_ptd2 in row2.index:
+                                    val = row2[t2_ptd2]
+                                    if val is not None and str(val).strip() not in ("", "NaT", "None", "nan"):
+                                        d = pd.to_datetime(val, errors='coerce')
+                                        if pd.notna(d) and d.date() == run_date:
+                                            is_match = True
                             if is_match:
                                 depot2 = str(row2[t2_depot]).strip()
                                 lotus_df.at[i, "🚦 Status"] = depot2 if depot2 else "Unknown Depot"
